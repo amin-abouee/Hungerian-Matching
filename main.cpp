@@ -23,12 +23,17 @@ int main(void)
         // cv::Point2f position;
         std::vector <int> adjacencyLists;
         std::vector <double> weights;
-        double feasibleLabel;
+        double label;
+        bool free;
+        int matchedIdx;
 
         vertex()
         {
             adjacencyLists.reserve(100);
             weights.reserve(100);
+            label = 0.0;
+            free = true;
+            matchedIdx = -1;
         };
     };
 
@@ -41,7 +46,7 @@ int main(void)
     //-----------
     
     //cv::Mat imageBGR(cv::Size(1200, 800), CV_8UC4, cv::Scalar(64, 64, 64));
-    cv::Mat imageBGR = cv::imread("../matching.png", cv::IMREAD_UNCHANGED);
+    cv::Mat imageBGR = cv::imread("/Users/amin/Workspace/cplusplus/Hungerian-Matching/matching.png", cv::IMREAD_UNCHANGED);
 
     cv::Mat imagePointsMat;
     cv::Mat modelPointsMat;
@@ -58,7 +63,7 @@ int main(void)
     std::vector<float> imageAngles; // Feature orientation in Radians
     std::vector<float> modelAngles;
     
-    cv::FileStorage fs("../matching.yml", cv::FileStorage::READ);
+    cv::FileStorage fs("/Users/amin/Workspace/cplusplus/Hungerian-Matching/matching.yml", cv::FileStorage::READ);
 
 
     fs["imagePoints"] >> imagePointsMat;
@@ -124,9 +129,10 @@ int main(void)
     int maxResults = 10; // Restrict radius search
     cv::Mat indices( 1, maxResults, CV_32SC1 ); // Old interface: assign neither type nor size here (segfaults otherwise)!
     cv::Mat dists( 1, maxResults, CV_32FC1 ); // Old interface: assign neither type nor size here (segfaults otherwise)!
+
+    std::map<int, int> mapImageIndexToVectorIdx;
    
  
-
     // For each projected model point, try to assign best matching image point in local neighborhood
     for ( std::size_t i = 0; i < modelPoints.size(); i++ )
     {
@@ -137,10 +143,11 @@ int main(void)
         std::cout << "Matching model point " << i<< ": numNeighbors: " << numNeighbors << std::endl;
 
         cv::Mat descriptorModel = modelDescriptors.row( i );
-        vertex temp;
         
         if ( numNeighbors > 0 )
         {
+            vertex temp;
+            // vertex tempB;
             // Compute distance
             for ( int j = 0; j < std::min( numNeighbors, maxResults ); j++ )
             {
@@ -154,11 +161,123 @@ int main(void)
                 std::cout << "   Neighbor " << j << ": " << "Weight: " << allinone <<  ", Descriptor: " << distDescriptor << ", Euclidean: " << distEuclidean << ", Angle: " << distAngle << std::endl;
                 temp.adjacencyLists.push_back(idx);
                 temp.weights.push_back(allinone);
+
+                //  -- initial edge labeling --
+                temp.label = std::max(temp.label, allinone);
+
+                //  -- initial B vector, the other side of bipartite graph
+                auto it = mapImageIndexToVectorIdx.find(idx);
+                if (it != mapImageIndexToVectorIdx.cend())
+                {
+                    int imgIdx = it->second;
+                    B[imgIdx].adjacencyLists.push_back(i);
+                    B[imgIdx].weights.push_back(allinone);
+                }
+                else
+                {
+                    vertex tempB;
+                    tempB.adjacencyLists.push_back(i);
+                    tempB.weights.push_back(allinone);
+                    B.push_back(tempB);
+                    mapImageIndexToVectorIdx[idx] = B.size() - 1;
+                }
             }
             A.push_back(temp);
         }
     }
 
+    // double check the connectivity between model idx and image idx, image idx maps to vector idx
+    for(const auto& p : mapImageIndexToVectorIdx)
+        std::cout << "connect: " << p.first << " , " << p.second << std::endl;
+
+    int cnt = 0;
+    for(const auto& v : A)
+    {
+        std::cout << "model idx: " << cnt << ", label: " << v.label << std::endl; 
+        for(const auto i : v.adjacencyLists)
+        {
+            std::cout << i << " (" << mapImageIndexToVectorIdx[i] << ")  ";
+        }
+        std::cout << std::endl;
+        cnt++;
+    }
+
+    bool initSets = true;
+    std::set<int> S;
+    std::set<int> T;
+    std::set<int> NS;
+
+    while(true)
+    {
+        // initialization of S and T, if necessary
+        if (initSets == true)
+        {
+            for(uint32_t i(0); i<A.size(); i++)
+            {
+                if(A[i].free == true)
+                {
+                    S.insert(i);
+                    break;
+                }
+            }
+            T.clear();
+            initSets = false;
+        }
+
+        // calculation of NS
+        for(const auto s: S)
+        {
+            for(int i(0); i < A[s].adjacencyLists.size(); i++ )
+            {
+                int idx = A[s].adjacencyLists[i];
+                int idxVecB = mapImageIndexToVectorIdx[idx];
+                if (A[s].label + B[idxVecB].label == A[s].weights[i])
+                {
+                    NS.insert(idx);
+                }
+            }
+        }
+        if (NS == T)
+        {
+            double delta = 1.0;
+            for(const auto& s: S)
+            {
+                for (int i(0); i<A[s].adjacencyLists.size(); i++)
+                {
+                    const int idx = A[s].adjacencyLists[i];
+                    const int vecBIdx = mapImageIndexToVectorIdx[idx];
+                    if (T.find(idx) != T.end())
+                    {
+                        delta = std::min(delta, A[s].label + B[vecBIdx].label - A[s].weights[idx]);
+                    }
+                }
+            }
+            for(const auto& s: S)
+                A[s].label -= delta;
+
+            for(const auto& t: T)
+            {
+                const int vecBIdx = mapImageIndexToVectorIdx[t];
+                B[vecBIdx].label += delta;
+            }
+        }
+        else
+        {
+            for(const auto& ns : NS)
+            {
+                const int vecBIdx = mapImageIndexToVectorIdx[ns];
+                if (B[vecBIdx].label == true &&  T.find(vecBIdx) != T.end())
+                {
+
+                }
+                else
+                {
+                    T.insert(ns);
+                    S.insert(B[vecBIdx].matchedIdx);
+                }
+            }
+        }
+    }
 
     
     //------------------
