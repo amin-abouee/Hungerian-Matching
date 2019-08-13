@@ -51,13 +51,14 @@ std::set <std::pair <int, int>  >findBFSPatches ( std::vector<vertex>& A, std::v
         for(int i(0); i < A[node].adjacencyLists.size(); i++)
         {
             int b = A[node].adjacencyLists[i];
+            int vecBidx = mapImageIndexToVectorIdx[b];
             if (b == y)
             {
+                parentsB[vecBidx] = node;
                 while(!Q.empty())
                     Q.pop();
                 break;
             }
-            int vecBidx = mapImageIndexToVectorIdx[b];
             if (A[node].label + B[vecBidx].label == A[node].weights[i] && parentsB[vecBidx] == -1)
             {
                 parentsB[vecBidx] = node;
@@ -74,13 +75,19 @@ std::set <std::pair <int, int>  >findBFSPatches ( std::vector<vertex>& A, std::v
         }
     }
 
-    int idx = y;
     std::set< std::pair < int, int> > M;
-    while(parentsA[idx] != idx)
+    int idb = y;
+    int vecBidx = mapImageIndexToVectorIdx[idb];
+    int ida = parentsB[vecBidx];
+    M.insert(std::make_pair(ida, idb));
+    A[ida].free = false;
+    while(parentsA[ida] != ida)
     {
-        int vecBidx = mapImageIndexToVectorIdx[idx];
-        M.insert(std::make_pair(idx, vecBidx));
-        idx = parentsB[vecBidx];
+        idb = parentsA[ida];
+        M.insert(std::make_pair(ida, idb));
+        vecBidx = mapImageIndexToVectorIdx[idb];
+        ida = parentsB[vecBidx];
+        M.insert(std::make_pair(ida, idb));
     }
     return M;
 }
@@ -404,7 +411,15 @@ int main(void)
                 const int vecBIdx = mapImageIndexToVectorIdx[ns];
                 if (B[vecBIdx].free == true && T.find(vecBIdx) == T.end())
                 {
-                    findBFSPatches (A, B, u, ns, mapImageIndexToVectorIdx);
+                    std::set< std::pair < int, int> > currentPath = findBFSPatches (A, B, u, ns, mapImageIndexToVectorIdx);
+                    for(const auto& p : currentPath)
+                    {
+                        auto it = M.find(p);
+                        if(it != M.end())
+                            M.erase(it);
+                        else
+                            M.insert(p);
+                    }
                 }
                 else
                 {
