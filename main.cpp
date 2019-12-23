@@ -81,6 +81,7 @@ std::set <std::pair <int, int>  >findBFSPatches ( std::vector<vertex>& A, std::v
     int ida = parentsB[vecBidx];
     M.insert(std::make_pair(ida, idb));
     A[ida].free = false;
+    B[vecBidx].free = false;
     while(parentsA[ida] != ida)
     {
         idb = parentsA[ida];
